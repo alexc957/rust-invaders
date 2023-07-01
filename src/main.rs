@@ -1,6 +1,6 @@
 #![allow(unused)] // silence unused warnings while exploring (to comment out)
 
-use bevy::math::Vec3Swizzles;
+use bevy::{math::Vec3Swizzles, transform};
 use bevy::prelude::*;
 use bevy::sprite::collide_aabb::collide;
 use bevy::window::PrimaryWindow;
@@ -32,6 +32,8 @@ const EXPLOSION_SHEET: &str = "explo_a_sheet.png";
 const EXPLOSION_LEN: usize = 16;
 
 const SPRITE_SCALE: f32 = 0.5;
+
+const FONT_FAMILY: &str = "Roboto-Light.ttf";
 
 // endregion: --- Asset Constants
 
@@ -65,16 +67,18 @@ struct GameTextures {
 #[derive(Resource)]
 struct EnemyCount(u32);
 
-#[derive(Resource)]
+#[derive(Resource, Debug)]
 struct PlayerState {
 	on: bool,       // alive
 	last_shot: f64, // -1 if not shot
+	score: f64,
 }
 impl Default for PlayerState {
 	fn default() -> Self {
 		Self {
 			on: false,
 			last_shot: -1.,
+			score: 0.,
 		}
 	}
 }
@@ -87,6 +91,11 @@ impl PlayerState {
 	pub fn spawned(&mut self) {
 		self.on = true;
 		self.last_shot = -1.;
+	}
+
+	pub fn add_score(&mut self) {
+		println!("hello ?");
+		self.score += 100.;
 	}
 }
 // endregion: --- Resources
@@ -107,6 +116,7 @@ fn main() {
 		.add_startup_system(setup_system)
 		.add_system(movable_system)
 		.add_system(player_laser_hit_enemy_system)
+		.add_system(add_score_to_screen)
 		.add_system(enemy_laser_hit_player_system)
 		.add_system(explosion_to_spawn_system)
 		.add_system(explosion_animation_system)
@@ -149,8 +159,34 @@ fn setup_system(
 		enemy_laser: asset_server.load(ENEMY_LASER_SPRITE),
 		explosion,
 	};
+	// text 
+
+	commands.spawn((
+		TextBundle::from_section(
+			"Score: ", 
+			TextStyle { 
+				font: asset_server.load(
+					FONT_FAMILY), 
+					font_size: 50.0, 
+					color: Color::WHITE,
+					..default()
+				}
+			),
+	));
 	commands.insert_resource(game_textures);
 	commands.insert_resource(EnemyCount(0));
+}
+
+fn add_score_to_screen(
+	mut query: Query<&mut Text>,
+	mut player_state: ResMut<PlayerState>,
+){
+
+	for mut text in &mut query {
+		text.sections[0].value = format!("Score: {}",player_state.score);
+	} 
+
+	
 }
 
 fn movable_system(
@@ -162,6 +198,7 @@ fn movable_system(
 		let translation = &mut transform.translation;
 		translation.x += velocity.x * TIME_STEP * BASE_SPEED;
 		translation.y += velocity.y * TIME_STEP * BASE_SPEED;
+
 
 		if movable.auto_despawn {
 			// despawn when out of screen
@@ -181,11 +218,12 @@ fn movable_system(
 fn player_laser_hit_enemy_system(
 	mut commands: Commands,
 	mut enemy_count: ResMut<EnemyCount>,
+	mut player_state: ResMut<PlayerState>,
 	laser_query: Query<(Entity, &Transform, &SpriteSize), (With<Laser>, With<FromPlayer>)>,
 	enemy_query: Query<(Entity, &Transform, &SpriteSize), With<Enemy>>,
 ) {
 	let mut despawned_entities: HashSet<Entity> = HashSet::new();
-
+	
 	// iterate through the lasers
 	for (laser_entity, laser_tf, laser_size) in laser_query.iter() {
 		if despawned_entities.contains(&laser_entity) {
@@ -218,6 +256,8 @@ fn player_laser_hit_enemy_system(
 				commands.entity(enemy_entity).despawn();
 				despawned_entities.insert(enemy_entity);
 				enemy_count.0 -= 1;
+				player_state.add_score();
+				print!("{}",player_state.score);
 
 				// remove the laser
 				commands.entity(laser_entity).despawn();
