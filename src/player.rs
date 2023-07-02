@@ -28,7 +28,7 @@ fn player_spawn_system(
 	let now = time.elapsed_seconds_f64();
 	let last_shot = player_state.last_shot;
 
-	if !player_state.on && (last_shot == -1. || now > last_shot + PLAYER_RESPAWN_DELAY) {
+	if !player_state.on && (last_shot == -1. || now > last_shot + PLAYER_RESPAWN_DELAY && player_state.n_lives>0) {
 		// add player
 		let bottom = -win_size.h / 2.;
 		commands
@@ -51,7 +51,7 @@ fn player_spawn_system(
 			.insert(Velocity { x: 0., y: 0. });
 
 		player_state.spawned();
-	}
+	} 
 }
 
 fn player_fire_system(
