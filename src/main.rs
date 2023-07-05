@@ -11,6 +11,7 @@ use components::{
 use enemy::EnemyPlugin;
 use player::PlayerPlugin;
 use std::collections::HashSet;
+use std::fmt::format;
 
 mod components;
 mod enemy;
@@ -67,11 +68,20 @@ struct GameTextures {
 #[derive(Resource)]
 struct EnemyCount(u32);
 
+
+#[derive(Component)]
+struct ScoreText;
+
+// A unit struct to help identify the color-changing Text component
+#[derive(Component)]
+struct NLivesText;
+
 #[derive(Resource, Debug)]
 struct PlayerState {
 	on: bool,       // alive
 	last_shot: f64, // -1 if not shot
 	score: f64,
+	n_lives: u16,
 }
 impl Default for PlayerState {
 	fn default() -> Self {
@@ -79,7 +89,9 @@ impl Default for PlayerState {
 			on: false,
 			last_shot: -1.,
 			score: 0.,
+			n_lives: 3,
 		}
+		
 	}
 }
 
@@ -94,7 +106,6 @@ impl PlayerState {
 	}
 
 	pub fn add_score(&mut self) {
-		println!("hello ?");
 		self.score += 100.;
 	}
 }
@@ -116,10 +127,11 @@ fn main() {
 		.add_startup_system(setup_system)
 		.add_system(movable_system)
 		.add_system(player_laser_hit_enemy_system)
-		.add_system(add_score_to_screen)
+		.add_system(add_text_to_screen)
 		.add_system(enemy_laser_hit_player_system)
 		.add_system(explosion_to_spawn_system)
 		.add_system(explosion_animation_system)
+		.add_system(spawn_game_over)
 		.run();
 }
 
@@ -128,6 +140,8 @@ fn setup_system(
 	asset_server: Res<AssetServer>,
 	mut texture_atlases: ResMut<Assets<TextureAtlas>>,
 	query: Query<&Window, With<PrimaryWindow>>,
+	mut player_state: ResMut<PlayerState>,
+
 ) {
 	// camera
 	commands.spawn(Camera2dBundle::default());
@@ -159,7 +173,7 @@ fn setup_system(
 		enemy_laser: asset_server.load(ENEMY_LASER_SPRITE),
 		explosion,
 	};
-	// text 
+	// score text 
 
 	commands.spawn((
 		TextBundle::from_section(
@@ -172,17 +186,77 @@ fn setup_system(
 					..default()
 				}
 			),
-	));
+	ScoreText	
+	),);
+
+	// lives text
+	commands.spawn((
+		TextBundle::from_section(
+			format!("# Lives {}",player_state.n_lives),
+			TextStyle { 
+				font: asset_server.load(
+					FONT_FAMILY), 
+					font_size: 50.0, 
+					color: Color::WHITE,
+					..default()
+				}
+			).with_style(Style {
+				position_type: PositionType::Absolute,
+				position: UiRect {
+					top: Val::Px(5.0),
+					right: Val::Px(15.0),
+					..default()
+				},
+				..default()
+			}),
+			NLivesText	
+	),);
+
+
 	commands.insert_resource(game_textures);
 	commands.insert_resource(EnemyCount(0));
 }
 
-fn add_score_to_screen(
-	mut query: Query<&mut Text>,
+fn spawn_game_over(
+	mut commands: Commands,
+	asset_server: Res<AssetServer>,
+	mut player_state: ResMut<PlayerState>,
+	win_size: Res<WinSize>,
+) {
+	if(player_state.n_lives == 0){
+		// simple for now
+		commands.spawn((
+			TextBundle::from_section(
+				"GAME OVER!",
+				TextStyle { 
+					font: asset_server.load(
+						FONT_FAMILY), 
+						font_size: 100.0, 
+						color: Color::WHITE,
+						..default()
+					}
+				).with_text_alignment(TextAlignment::Center)
+				.with_style(Style {
+					position_type: PositionType::Absolute,
+					position: UiRect {
+						top: Val::Px(win_size.h/2.),
+						left: Val::Px(win_size.w/6.),
+						..default()
+					},
+					..default()
+				}),
+		),);
+
+	}
+}
+
+fn add_text_to_screen(
+	mut score_text_query: Query<&mut Text,With<ScoreText>>,
+	//mut n_lives_text_query: Query<&mut Text, With<NLivesText>>,
 	mut player_state: ResMut<PlayerState>,
 ){
 
-	for mut text in &mut query {
+	for mut text in &mut score_text_query {
 		text.sections[0].value = format!("Score: {}",player_state.score);
 	} 
 
@@ -257,7 +331,6 @@ fn player_laser_hit_enemy_system(
 				despawned_entities.insert(enemy_entity);
 				enemy_count.0 -= 1;
 				player_state.add_score();
-				print!("{}",player_state.score);
 
 				// remove the laser
 				commands.entity(laser_entity).despawn();
@@ -277,6 +350,7 @@ fn enemy_laser_hit_player_system(
 	time: Res<Time>,
 	laser_query: Query<(Entity, &Transform, &SpriteSize), (With<Laser>, With<FromEnemy>)>,
 	player_query: Query<(Entity, &Transform, &SpriteSize), With<Player>>,
+	mut n_lives_text_query: Query<&mut Text, With<NLivesText>>,
 ) {
 	if let Ok((player_entity, player_tf, player_size)) = player_query.get_single() {
 		let player_scale = player_tf.scale.xy();
@@ -300,6 +374,13 @@ fn enemy_laser_hit_player_system(
 
 				// remove the laser
 				commands.entity(laser_entity).despawn();
+
+				// restar lives 
+
+				player_state.n_lives  -= 1;
+				for mut text in &mut n_lives_text_query {
+					text.sections[0].value = format!("# Lives {}",player_state.n_lives)
+				}  
 
 				// spawn the explosionToSpawn
 				commands.spawn(ExplosionToSpawn(player_tf.translation));
